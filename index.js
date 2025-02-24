@@ -44,8 +44,9 @@ app.get("/test", (req, res) => {
 app.use((req, res, next) => {
     if (
         req.url.includes("login") ||
-        req.url.includes("/api/upload") ||
+        req.url.includes("/upload") ||
         req.url.includes("/temp") ||
+        req.url.includes("/goodsPic") ||
         req.url.includes("/userHeadPhotos")
     ) {
         next();
@@ -185,7 +186,7 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     }
 
     const filePath = `/temp/${req.file.filename}`;
-    res.json({ url: `http://localhost:3000${filePath}` }); // 返回图片访问路径
+    res.json({ url: `http://localhost:3000${filePath}` }); // 返回图片/、临时视频文件访问路径
 });
 // 用户信息修改
 app.post("/mine/updateUserInfo", (req, res) => {
@@ -321,6 +322,239 @@ app.post("/mine/updateUserInfo", (req, res) => {
         });
     }
 });
+// 获取商品信息
+app.get("/goods/getAllGoods", function (req, res) {
+    const sql = `
+        SELECT 
+          g.id AS goodsId, 
+          g.title, 
+          g.content, 
+          g.price, 
+          g.pageView, 
+          g.created,
+          g.updated,
+          g.tag,
+          g.surfacePicture,
+          g.pictureUrl,
+          g.videoUrl,
+          u.id AS userId, 
+          u.userName, 
+          u.headImg,
+          c.id AS category_id,
+          c.category AS category_name
+        FROM 
+          goods g
+        JOIN 
+          user u ON g.userId = u.id
+        JOIN 
+          goodscategory c ON g.tag = c.id
+      `;
+    db.conn.query(sql, function (err, result) {
+        if (err) {
+            console.log(err);
+
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "查询成功",
+            data: result,
+        });
+    });
+});
+//通过标签获取商品信息
+app.get("/goods/getGoodsByTag", (req, res) => {
+    var tag = req.query.tag;
+    const sql = `
+        SELECT 
+          g.id AS goodsId, 
+          g.title, 
+          g.content, 
+          g.price, 
+          g.pageView, 
+          g.created,
+          g.updated,
+          g.tag,
+          g.surfacePicture,
+          g.pictureUrl,
+          g.videoUrl,
+          u.id AS userId, 
+          u.userName, 
+          u.headImg,
+          c.id AS category_id,
+          c.category AS category_name
+        FROM 
+          goods g
+        JOIN 
+          user u ON g.userId = u.id
+        JOIN 
+          goodscategory c ON g.tag = c.id
+        WHERE g.tag = ?`;
+
+    db.conn.query(sql, [tag], (err, result) => {
+        if (err) {
+            console.log(err);
+
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+//添加图片类商品信息
+app.post("/goods/addGoods", (req, res) => {
+    // console.log(req.body);
+    // 解构赋值
+    let {
+        created,
+        userId,
+        surfacePicture,
+        title,
+        content,
+        price,
+        tag,
+        pictureurl,
+        isAvatarUploaded,
+    } = req.body;
+    // 将图片从/temp 移到/goodsPic中
+    const surfaceTempPath = `uploads/temp/${surfacePicture.split("/").pop()}`;
+    let newSurfacePath = `uploads/goodsPic/${surfacePicture.split("/").pop()}`;
+    // console.log("数组类型" + typeof pictureurl + " w+" + pictureurl);
+    // 移动封面图片
+    fs.rename(surfaceTempPath, newSurfacePath, (err) => {
+        if (err) {
+            console.error("Failed to move image:", err);
+            return res
+                .status(500)
+                .json({ state: false, message: "封面图片保存失败" });
+        }
+    });
+    surfacePicture = `http://localhost:3000//goodsPic/${surfacePicture
+        .split("/")
+        .pop()}`;
+    //循环移动图片
+    for (let i = 0; i < pictureurl.length; i++) {
+        let tempPath = `uploads/temp/${pictureurl[i].split("/").pop()}`;
+        let newPath = `uploads/goodsPic/${pictureurl[i].split("/").pop()}`;
+        fs.rename(tempPath, newPath, (err) => {
+            if (err) {
+                console.error("Failed to move image:", err);
+                return res
+                    .status(500)
+                    .json({ state: false, message: "商品内容图片保存失败" });
+            }
+        });
+    }
+    // 使用 map 方法处理pictureurl 数据,替换路径
+    const updatedUrls = pictureurl.map((url) =>
+        url.replace("/temp/", "/goodsPic/")
+    );
+    //将数据保存到数据库
+    let sql = `insert into goods(created,userId,title,content,tag,surfacePicture,price,pictureUrl,pageView) values(?,?,?,?,?,?,?,?,?)`;
+    let sqlParams = [
+        created,
+        userId,
+        title,
+        content,
+        tag,
+        surfacePicture,
+        price,
+        JSON.stringify(updatedUrls),
+        0,
+    ];
+
+    db.conn.query(sql, sqlParams, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "发布失败",
+            });
+        }
+    });
+    return res.json({
+        state: true,
+        message: "发布成功",
+    });
+});
+//添加视频类商品信息
+app.post("/goods/addVideoGoods", (req, res) => {
+    let {
+        created,
+        userId,
+        surfacePicture,
+        title,
+        content,
+        price,
+        tag,
+        videourl,
+        isAvatarUploaded,
+    } = req.body;
+    // 将封面图片和视频从/temp 移到/goodsPic中
+    const surfaceTempPath = `uploads/temp/${surfacePicture.split("/").pop()}`;
+    const videoTempPath = `uploads/temp/${videourl.split("/").pop()}`;
+    let newSurfacePath = `uploads/goodsPic/${surfacePicture.split("/").pop()}`;
+    const newVideoPath = `uploads/goodsPic/${videourl.split("/").pop()}`;
+    // 移动封面图片
+    fs.rename(surfaceTempPath, newSurfacePath, (err) => {
+        if (err) {
+            console.error("Failed to move image:", err);
+            return res
+                .status(500)
+                .json({ state: false, message: "封面图片保存失败" });
+        }
+    });
+    // 移动视频
+    fs.rename(videoTempPath, newVideoPath, (err) => {
+        if (err) {
+            console.error("Failed to move video:", err);
+            return res
+                .status(500)
+                .json({ state: false, message: "商品视频保存失败" });
+        }
+    });
+    surfacePicture = `http://localhost:3000/goodsPic/${surfacePicture
+        .split("/")
+        .pop()}`;
+    videourl = `http://localhost:3000/goodsPic/${videourl.split("/").pop()}`;
+    //将数据保存到数据库
+    let sql = `insert into goods(created,userId,title,content,tag,surfacePicture,price,videourl,pageView) values(?,?,?,?,?,?,?,?,?)`;
+    let sqlParams = [
+        created,
+        userId,
+        title,
+        content,
+        tag,
+        surfacePicture,
+        price,
+        videourl,
+        0,
+    ];
+    db.conn.query(sql, sqlParams, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "发布失败",
+            });
+        }
+    });
+    return res.json({
+        state: true,
+        message: "发布成功",
+    });
+});
 // 静态资源服务,uploads文件夹作为静态资源根目录
 app.use(express.static("./uploads"));
 // 定时清理任务（清理临时目录中的未使用图片）
@@ -338,7 +572,7 @@ setInterval(() => {
             });
         });
     });
-}, 60 * 60 * 1000); // 每小时清理一次
+}, 60 * 30 * 1000); // 每半小时清理一次
 // 启动服务
 console.log(
     `Start static file server at ::${LOCAL_BIND_PORT}, Press ^ + C to exit`
