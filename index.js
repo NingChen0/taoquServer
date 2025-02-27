@@ -10,7 +10,8 @@ const { response } = require("express");
 var db = require("./db.js"); //加载db模块，使用暴露出来的conn
 //引入封装好的jwt模块
 const Token = require("./jwt");
-
+//引入自定义fileoperation模块
+const FileOperation = require("./fileutils.js");
 app.use(bodyParaser.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "static")));
@@ -186,7 +187,7 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     }
 
     const filePath = `/temp/${req.file.filename}`;
-    res.json({ url: `http://localhost:3000${filePath}` }); // 返回图片/、临时视频文件访问路径
+    res.json({ code: 200, url: `http://localhost:3000${filePath}` }); // 返回图片/、临时视频文件访问路径
 });
 // 用户信息修改
 app.post("/mine/updateUserInfo", (req, res) => {
@@ -348,6 +349,8 @@ app.get("/goods/getAllGoods", function (req, res) {
           user u ON g.userId = u.id
         JOIN 
           goodscategory c ON g.tag = c.id
+          WHERE 
+            g.isDelete != 1
       `;
     db.conn.query(sql, function (err, result) {
         if (err) {
@@ -362,6 +365,98 @@ app.get("/goods/getAllGoods", function (req, res) {
         res.json({
             state: true,
             message: "查询成功",
+            data: result,
+        });
+    });
+});
+// 通过id获取商品信息
+app.get("/goods/getGoodsById", (req, res) => {
+    let id = req.query.id;
+    const sql = `SELECT 
+          g.id AS goodsId, 
+          g.title, 
+          g.content, 
+          g.price, 
+          g.pageView, 
+          g.created,
+          g.updated,
+          g.tag,
+          g.surfacePicture,
+          g.pictureUrl,
+          g.videoUrl,
+          u.id AS userId, 
+          u.userName, 
+          u.headImg,
+          c.id AS category_id,
+          c.category AS category_name
+        FROM 
+          goods g
+        JOIN 
+          user u ON g.userId = u.id
+        JOIN 
+          goodscategory c ON g.tag = c.id
+        WHERE g.id = ?`;
+    console.log("getID : " + id);
+
+    db.conn.query(sql, [id], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+// 通过userId获取用户商品信息
+app.get("/goods/getGoodsByUserId", (req, res) => {
+    let userId = req.query.userId;
+    const sql = `SELECT 
+        g.id AS goodsId, 
+        g.title, 
+        g.content, 
+        g.price, 
+        g.pageView, 
+        g.created,
+        g.updated,
+        g.tag,
+        g.surfacePicture,
+        g.pictureUrl,
+        g.videoUrl,
+        u.id AS userId, 
+        u.userName, 
+        u.headImg,
+        c.id AS category_id,
+        c.category AS category_name
+      FROM 
+        goods g
+      JOIN 
+        user u ON g.userId = u.id
+      JOIN 
+        goodscategory c ON g.tag = c.id
+      WHERE g.userId = ? AND g.isDelete != 1`;
+    // console.log("getUserID : " + userId);
+
+    db.conn.query(sql, [userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        console.log(result);
+
+        res.json({
+            state: true,
+            message: "获取成功",
             data: result,
         });
     });
@@ -393,7 +488,7 @@ app.get("/goods/getGoodsByTag", (req, res) => {
           user u ON g.userId = u.id
         JOIN 
           goodscategory c ON g.tag = c.id
-        WHERE g.tag = ?`;
+        WHERE g.tag = ? AND g.isDelete != 1`;
 
     db.conn.query(sql, [tag], (err, result) => {
         if (err) {
@@ -440,7 +535,7 @@ app.post("/goods/addGoods", (req, res) => {
                 .json({ state: false, message: "封面图片保存失败" });
         }
     });
-    surfacePicture = `http://localhost:3000//goodsPic/${surfacePicture
+    surfacePicture = `http://localhost:3000/goodsPic/${surfacePicture
         .split("/")
         .pop()}`;
     //循环移动图片
@@ -553,6 +648,467 @@ app.post("/goods/addVideoGoods", (req, res) => {
     return res.json({
         state: true,
         message: "发布成功",
+    });
+});
+
+//用户修改发布的商品信息
+app.post("/goods/updateGoods", (req, res) => {
+    const { updateForm, deletedFileList } = req.body;
+    let {
+        goodsId,
+        title,
+        content,
+        updated,
+        tag,
+        price,
+        surfacePicture,
+        pictureUrl,
+        videoUrl,
+    } = updateForm;
+    let newSurfacePicture = surfacePicture;
+    //判断封面图片是否新上传
+    if (surfacePicture.includes("temp")) {
+        newSurfacePicture = `http://localhost:3000/goodsPic/${surfacePicture
+            .split("/")
+            .pop()}`;
+        let tempPath = `uploads/temp/${surfacePicture.split("/").pop()}`;
+        let newPath = `uploads/goodsPic/${newSurfacePicture.split("/").pop()}`;
+        // 移动封面图片;
+        // 判断文件是否存在
+        if (fs.existsSync(tempPath)) {
+            fs.rename(tempPath, newPath, (err) => {
+                if (err) {
+                    console.error("Failed to move pic:", err);
+                    return res.status(500).json({
+                        state: false,
+                        message: "商品封面图片保存失败",
+                    });
+                }
+            });
+        }
+    }
+    //判断是否新上传视频文件
+    let newVideoUrl = videoUrl;
+    if (videoUrl.includes("temp")) {
+        newVideoUrl = `http://localhost:3000/goodsPic/${videoUrl
+            .split("/")
+            .pop()}`;
+        let tempPath = `uploads/temp/${videoUrl.split("/").pop()}`;
+        let newPath = `uploads/goodsPic/${newVideoUrl.split("/").pop()}`;
+        // 移动封面图片;
+        // 判断文件是否存在
+        if (fs.existsSync(tempPath)) {
+            fs.rename(tempPath, newPath, (err) => {
+                if (err) {
+                    console.error("Failed to move pic:", err);
+                    return res.status(500).json({
+                        state: false,
+                        message: "视频保存失败",
+                    });
+                }
+            });
+        }
+    }
+    let newPictureUrl = JSON.parse(pictureUrl);
+    //循环移动图片list
+    for (let i = 0; i < newPictureUrl.length; i++) {
+        //判断图片是否是新上传的
+        if (newPictureUrl[i].includes("temp")) {
+            let tempPath = `uploads/temp/${newPictureUrl[i].split("/").pop()}`;
+            let newPath = `uploads/goodsPic/${newPictureUrl[i]
+                .split("/")
+                .pop()}`;
+            // //判断文件是否存在
+            if (fs.existsSync(tempPath)) {
+                fs.rename(tempPath, newPath, (err) => {
+                    if (err) {
+                        console.error("Failed to move image:", err);
+                        return res.status(500).json({
+                            state: false,
+                            message: "商品内容图片保存失败",
+                        });
+                    }
+                });
+            }
+            // 处理pictureurl 数据,替换路径
+            newPictureUrl[i] = newPictureUrl[i].replace("/temp/", "/goodsPic/");
+        }
+    }
+    //删除旧图片
+    for (let i = 0; i < deletedFileList.length; i++) {
+        let filePath = `uploads/goodsPic/${deletedFileList[i].url
+            .split("/")
+            .pop()}`;
+        //判断文件是否存在
+        if (fs.existsSync(filePath)) {
+            fs.unlink(filePath, (err) => {
+                if (err) {
+                    console.error("Failed to delete file:", err);
+                }
+            });
+        }
+    }
+
+    const sql = `update goods set title=?,content=?,updated=?,tag=?,price=?,surfacePicture=?,pictureUrl=?,videoUrl=? where id=?`;
+    let sqlParams = [
+        title,
+        content,
+        updated,
+        tag,
+        price,
+        newSurfacePicture,
+        JSON.stringify(newPictureUrl),
+        newVideoUrl,
+        goodsId,
+    ];
+    db.conn.query(sql, sqlParams, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "修改失败",
+            });
+        }
+    });
+    res.json({
+        state: true,
+        message: "修改成功",
+    });
+});
+//删除商品
+app.post("/goods/deleteGoods", (req, res) => {
+    const { goodsId, deletedFiles } = req.body;
+    console.log("id" + goodsId);
+
+    let sql = `delete from goods where id=?`;
+    db.conn.query(sql, goodsId, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "删除失败",
+            });
+        }
+        //删除旧图片
+        for (let i = 0; i < deletedFiles.length; i++) {
+            //判断是否为空
+            if (deletedFiles[i].url == "" || deletedFiles[i].url == null) {
+                continue;
+            }
+            let filePath = `uploads/goodsPic/${deletedFiles[i].url
+                .split("/")
+                .pop()}`;
+            //判断文件是否存在
+            if (fs.existsSync(filePath)) {
+                fs.unlink(filePath, (err) => {
+                    if (err) {
+                        console.error("Failed to delete file:", err);
+                    }
+                });
+            }
+        }
+        return res.json({
+            state: true,
+            message: "删除成功",
+        });
+    });
+});
+// 用户添加购物车
+app.post("/shop/addshopCar", (req, res) => {
+    const { goods, buyerId } = req.body;
+    if (goods.length == 0) {
+        return res.json({
+            state: false,
+            message: "请选择商品",
+        });
+    }
+    let {
+        content,
+        goodsId,
+        userId,
+        price,
+        title,
+        surfacePicture,
+        userName,
+        headImg,
+    } = goods;
+    //使用tryCatch
+    try {
+        //当同一用户buerId，和goodsId重复时，不添加，从数据库中查询，如果存在，则不添加
+        let sql1 = `select * from shopcar where goodsId=? and buyerId=?`;
+        db.conn.query(sql1, [goodsId, buyerId], (err, result) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "查找失败",
+                });
+            }
+            if (result.length > 0) {
+                return res.json({
+                    state: false,
+                    message: "购物车中该商品已存在",
+                });
+            } else {
+                let sql = `insert into shopcar(content,price,title,goodsSurface,sellerId,buyerId,sellerName,sellerImg,goodsId) values(?,?,?,?,?,?,?,?,?)`;
+                let sqlParams = [
+                    content,
+                    price,
+                    title,
+                    surfacePicture,
+                    userId,
+                    buyerId,
+                    userName,
+                    headImg,
+                    goodsId,
+                ];
+                db.conn.query(sql, sqlParams, (err, result) => {
+                    if (err) {
+                        console.log(err);
+                        return res.json({
+                            state: false,
+                            message: "添加失败",
+                        });
+                    }
+                    return res.json({
+                        state: true,
+                        message: "添加成功",
+                    });
+                });
+            }
+        });
+    } catch (error) {
+        console.log(error);
+        return res.json({
+            state: false,
+            message: "添加失败",
+        });
+    }
+});
+//用户获取购物车
+app.get("/shop/getshopCar", (req, res) => {
+    const buyerId = req.query.userId;
+    console.log(buyerId);
+
+    let sql = `select * from shopcar where buyerId=?`;
+    db.conn.query(sql, [buyerId], (err, result) => {
+        if (err) {
+            console.log(err);
+
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+// 用户删除购物车
+app.post("/shop/deleteshopCar", (req, res) => {
+    const { shopCarId, buyerId } = req.body;
+    let sql = `delete from shopcar where id=? and buyerId=?`;
+    db.conn.query(sql, [shopCarId, buyerId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "删除失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "删除成功",
+        });
+    });
+});
+//用户获取地址信息
+app.get("/address/getAddressList", (req, res) => {
+    const userId = req.query.userId;
+    console.log(userId);
+    let sql = `select * from useraddress where userId=?`;
+    db.conn.query(sql, [userId], (err, result) => {
+        if (err) {
+            console.log(err);
+
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+// 用户添加地址
+app.post("/address/addAddress", (req, res) => {
+    const { userId, address, name, phone } = req.body;
+    let sql = `insert into useraddress(userId,address,name,phone,isDefault) values(?,?,?,?,?)`;
+    db.conn.query(sql, [userId, address, name, phone, 0], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "添加失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "添加成功",
+        });
+    });
+});
+// 用户删除地址
+app.post("/address/deleteAddress", (req, res) => {
+    const { addressId, userId } = req.body;
+    let sql = `delete from useraddress where id=? and userId=?`;
+    db.conn.query(sql, [addressId, userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "删除失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "删除成功",
+        });
+    });
+});
+// 用户修改地址
+app.post("/address/updateAddress", (req, res) => {
+    const { id, userId, address, name, phone } = req.body;
+    let sql = `update useraddress set address=?,name=?,phone=? where id=? and userId=?`;
+    db.conn.query(sql, [address, name, phone, id, userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "修改失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "修改成功",
+        });
+    });
+});
+// 用户设置默认地址
+app.post("/address/setDefaultAddress", (req, res) => {
+    const { addressId, userId } = req.body;
+    // 先将所有地址的isDefault设置为0
+    let sql = `update useraddress set isDefault=? where userId=?`;
+    db.conn.query(sql, [0, userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "设置失败",
+            });
+        }
+    });
+    // 将选中的地址的isDefault设置为1
+    sql = `update useraddress set isDefault=? where id=? and userId=?`;
+    db.conn.query(sql, [1, addressId, userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "设置失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "设置成功",
+        });
+    });
+});
+// 用户提交订单
+app.post("/order/submitOrder", (req, res) => {
+    let {
+        orderNum,
+        createTime,
+        payTime,
+        price,
+        buyerId,
+        sellerId,
+        goodsId,
+        addressId,
+        remark,
+        surfacePicture,
+        title,
+    } = req.body;
+    //如果该商品的goodsId在orders表中存在，则不添加返回错误
+    let sql = `select * from orders where goodsId=?`;
+    db.conn.query(sql, [goodsId], (err, result) => {
+        if (result.length > 0) {
+            return res.json({
+                state: false,
+                message: "来晚了哦，该商品已售空",
+            });
+        } else {
+            // 不存在插入订单
+            try {
+                let sql = `insert into orders(orderNum,createTime,payTime,price,buyerId,sellerId,goodsId,addressId,remark,surfacePicture,title) values(?,?,?,?,?,?,?,?,?,?,?)`;
+                db.conn.query(
+                    sql,
+                    [
+                        orderNum,
+                        createTime,
+                        payTime,
+                        price,
+                        buyerId,
+                        sellerId,
+                        goodsId,
+                        addressId,
+                        remark,
+                        surfacePicture,
+                        title,
+                    ],
+                    (err, result) => {
+                        if (err) {
+                            console.log(err);
+                            return res.json({
+                                state: false,
+                                message: "提交失败",
+                            });
+                        }
+
+                        // 插入成功时，则将该商品在goods表中该商品的orderState设置为oeders的id,isDelete设置为1
+                        sql = `update goods set orderState=?,isDelete=? where id=?`;
+                        db.conn.query(sql, ["已售出", 1, goodsId], (err) => {
+                            if (err) {
+                                console.log(err);
+                                return res.json({
+                                    state: false,
+                                    message: "提交失败",
+                                });
+                            }
+                        });
+
+                        return res.json({
+                            state: true,
+                            message: "提交成功",
+                        });
+                    }
+                );
+            } catch (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "提交失败",
+                });
+            }
+        }
     });
 });
 // 静态资源服务,uploads文件夹作为静态资源根目录
