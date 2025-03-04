@@ -890,7 +890,7 @@ app.get("/shop/getshopCar", (req, res) => {
     const buyerId = req.query.userId;
     console.log(buyerId);
 
-    let sql = `select * from shopcar where buyerId=?`;
+    let sql = `select s.*,g.orderState from shopcar s JOIN goods g ON s.goodsId=g.id  where s.buyerId=?`;
     db.conn.query(sql, [buyerId], (err, result) => {
         if (err) {
             console.log(err);
@@ -909,7 +909,7 @@ app.get("/shop/getshopCar", (req, res) => {
     });
 });
 // 用户删除购物车
-app.post("/shop/deleteshopCar", (req, res) => {
+app.post("/shop/deleteShopCar", (req, res) => {
     const { shopCarId, buyerId } = req.body;
     let sql = `delete from shopcar where id=? and buyerId=?`;
     db.conn.query(sql, [shopCarId, buyerId], (err, result) => {
@@ -1032,7 +1032,7 @@ app.post("/address/setDefaultAddress", (req, res) => {
         });
     });
 });
-// 用户提交订单
+// 用户提交订单，添加订单
 app.post("/order/submitOrder", (req, res) => {
     let {
         orderNum,
@@ -1110,6 +1110,269 @@ app.post("/order/submitOrder", (req, res) => {
             }
         }
     });
+});
+// 用户获取订单
+app.get("/orders/getOrdersByUserId", (req, res) => {
+    const { userId } = req.query;
+    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as sellerImg,u.userName AS sellerName from orders o JOIN user u on o.sellerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id where o.buyerId=?`;
+    db.conn.query(sql, [userId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取失败",
+            });
+        }
+        result.forEach((item) => {
+            item.seller = {
+                sellerImg: item.sellerImg,
+                sellerName: item.sellerName,
+            };
+        });
+        return res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+//根据卖家id获取订单
+app.get("/orders/getOrdersBySellerId", (req, res) => {
+    const { sellerId } = req.query;
+    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as sellerImg,u.userName AS sellerName from orders o JOIN user u on o.buyerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id where o.sellerId=?`;
+    db.conn.query(sql, [sellerId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+//卖家根据订单状态获取订单
+app.get("/orders/getOrdersByState", (req, res) => {
+    const { orderState, sellerId } = req.query;
+    try {
+        let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as sellerImg,u.userName AS sellerName from orders o JOIN user u on o.buyerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id where o.sellerId=? and o.orderState=?`;
+        db.conn.query(sql, [sellerId, orderState], (err, result) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "获取失败",
+                });
+            }
+            return res.json({
+                state: true,
+                message: "获取成功",
+                data: result,
+            });
+        });
+    } catch (err) {
+        console.log(err);
+        return res.json({
+            state: false,
+            message: "获取失败",
+        });
+    }
+});
+// 卖家修改订单状态（发货，收货）
+app.post("/orders/updateOrderState", (req, res) => {
+    const { orderId, orderState } = req.body;
+    try {
+        let sql = `update orders set orderState=? where id=?`;
+        db.conn.query(sql, [orderState, orderId], (err, result) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "操作失败",
+                });
+            }
+            return res.json({
+                state: true,
+                message: "操作成功",
+            });
+        });
+    } catch (err) {
+        console.log(err);
+        return res.json({
+            state: false,
+            message: "操作失败",
+        });
+    }
+});
+// 用户获取订单详情
+app.post("/order/getOrderDetail", (req, res) => {
+    const { id } = req.body;
+    let sql = `select * from orders where id=?`;
+    db.conn.query(sql, [id], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+// 用户删除订单
+app.post("/orders/deleteOrdersById", (req, res) => {
+    const { orderId } = req.body;
+    let sql = `delete from orders where id=?`;
+    db.conn.query(sql, [orderId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "删除失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "删除成功",
+        });
+    });
+});
+//用户给订单添加评价
+app.post("/orders/addComment", (req, res) => {
+    const { orderId, comment } = req.body;
+    let sql = `update orders set comment=? where id=?`;
+    db.conn.query(sql, [comment, orderId], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "添加失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "添加成功",
+        });
+    });
+});
+
+// 获取聊天记录
+app.get("/mine/getMessages", (req, res) => {
+    const { sender_id, receiver_id } = req.query;
+    const sql = `
+      SELECT * FROM messages 
+      WHERE (sender_id = ? AND receiver_id = ?)
+         OR (sender_id = ? AND receiver_id = ?)
+      ORDER BY created_at ASC
+  `;
+    db.conn.query(
+        sql,
+        [sender_id, receiver_id, receiver_id, sender_id],
+        (err, results) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "获取失败",
+                });
+            }
+            return res.json({
+                state: true,
+                message: "获取成功",
+                data: results,
+            });
+        }
+    );
+});
+
+// 发送消息
+app.post("/mine/sendMessages", (req, res) => {
+    const { sender_id, receiver_id, message, created_at, goodsId } = req.body;
+    console.log(created_at);
+
+    const sql =
+        "INSERT INTO messages (sender_id, receiver_id, message,created_at,goodsId) VALUES (?,?,?,?,?)";
+    db.conn.query(
+        sql,
+        [sender_id, receiver_id, message, created_at, goodsId],
+        (err, result) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "发送失败",
+                });
+            }
+            return res.json({
+                state: true,
+                message: "发送成功",
+                data: result,
+            });
+        }
+    );
+});
+// 用户获取关于自己是接受人的信息
+app.get("/mine/getMessagesByReceiverId", (req, res) => {
+    const { receiver_id } = req.query;
+    console.log(receiver_id);
+
+    //     const sql = `SELECT m.*,us.headImg AS senderImg,us.userName as senderName FROM messages m
+    //  JOIN
+    //     user us ON m.sender_id = us.id
+    // WHERE m.sender_id = ?
+    //          OR m.receiver_id = ?
+    // ORDER BY
+    //     m.created_at ASC;`;
+    let sql1 = `SELECT 
+              u.id AS chatUserId,
+              u.userName,
+              u.headImg,
+              m.message AS last_message,
+              sub.last_message_time,
+              m.goodsId
+          FROM (
+              SELECT 
+                  CASE 
+                      WHEN sender_id = ? THEN receiver_id 
+                      ELSE sender_id 
+                  END AS chatUserId,
+                  MAX(created_at) AS last_message_time
+              FROM messages
+              WHERE sender_id = ? OR receiver_id = ?
+              GROUP BY chatUserId
+          ) AS sub
+          JOIN user u ON u.id = sub.chatUserId
+          JOIN messages m ON m.created_at = sub.last_message_time
+          ORDER BY sub.last_message_time DESC;`;
+    db.conn.query(
+        sql1,
+        [receiver_id, receiver_id, receiver_id],
+        (err, results) => {
+            if (err) {
+                console.log(err);
+                return res.json({
+                    state: false,
+                    message: "获取失败",
+                });
+            } else {
+                console.log(results);
+
+                return res.json({
+                    state: true,
+                    message: "获取成功",
+                    data: results,
+                });
+            }
+        }
+    );
 });
 // 静态资源服务,uploads文件夹作为静态资源根目录
 app.use(express.static("./uploads"));
