@@ -1,10 +1,16 @@
 const express = require("express");
 const multer = require("multer");
+const http = require("http"); // 引入 http 模块
 const path = require("path");
 const fs = require("fs");
 var LOCAL_BIND_PORT = 3000;
 var app = express();
 
+// 创建 HTTP 服务器
+const server = http.createServer(app);
+const webSocketServer = require("./wsServer.js");
+// 初始化WebSocket服务器
+webSocketServer(server);
 const bodyParaser = require("body-parser");
 const { response } = require("express");
 var db = require("./db.js"); //加载db模块，使用暴露出来的conn
@@ -19,18 +25,21 @@ app.use(express.static(path.join(__dirname, "static")));
 //设置跨域访问
 app.all("*", function (req, res, next) {
     res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+    // 允许的请求头列表中
     res.header(
         "Access-Control-Allow-Headers",
-        "Content-Type,Content-Length, Authorization,Origin,Accept,X-Requested-With"
+        "Content-Type,Content-Length, Authorization,Origin,Accept,X-Requested-With,userid"
     );
+    // 设置允许的 HTTP 方法
     res.header(
         "Access-Control-Allow-Methods",
         "GET, POST, OPTIONS, PUT, PATCH, DELETE"
     );
+    // 允许凭证（cookies）
     res.header("Access-Control-Allow-Credentials", true);
     res.header("X-Powered-By", " 3.2.1");
     res.header("Content-Type", "application/json;charset=utf-8");
-    res.header("Access-Control-Expose-Headers", "Authorization"); //如果前端需要获取自定义的响应头的话，需要服务器端设置Access-Control-Expose-Headers
+    res.header("Access-Control-Expose-Headers", "Authorization,userId"); //如果前端需要获取自定义的响应头的话，需要服务器端设置Access-Control-Expose-Headers
     if (req.method === "OPTIONS") {
         res.sendStatus(200);
     } else {
@@ -1396,4 +1405,9 @@ setInterval(() => {
 console.log(
     `Start static file server at ::${LOCAL_BIND_PORT}, Press ^ + C to exit`
 );
+// 设置端口并启动服务器
+const PORT = process.env.PORT || 8001;
+server.listen(PORT, () => {
+    console.log(`websoketServer is running on port ${PORT}`);
+});
 app.listen(LOCAL_BIND_PORT);
