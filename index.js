@@ -86,7 +86,59 @@ app.use((req, res, next) => {
         res.status(401).send({ errCode: -1, errInfo: "token过期" });
     }
 });
-
+// 时间线
+app.get("/timeline", (req, res) => {
+    console.log(req.body);
+    let sql = "select * from timeline order by timestamp desc";
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            res.res.json({
+                state: false,
+                message: "数据库错误，请稍后重试",
+            });
+            return console.log(err);
+        }
+        return res.json({
+            state: true,
+            result,
+        });
+    });
+});
+//管理员登录
+app.post("/admin/login", (req, res) => {
+    console.log(req.body);
+    let data = req.body;
+    let { username, password } = data;
+    let sql =
+        "select * from user where userName=? and password=? and userType='admin'";
+    db.conn.query(sql, [username, password], (err, result) => {
+        if (err) {
+            return console.log(err);
+        }
+        if (result.length > 0) {
+            //登录成功
+            // jwt
+            const token = Token.generate(
+                { id: result[0].id, name: result[0].userName },
+                "1h"
+            );
+            res.header("Authorization", token);
+            // console.log(result);
+            return res.json({
+                id: result[0].id,
+                userName: result[0].userName,
+                state: true,
+                message: "登录成功",
+                headImg: result[0].headImg,
+                userType: result[0].userType,
+            });
+        }
+        return res.json({
+            state: false,
+            message: "用户名或密码错误！请重新输入...",
+        });
+    });
+});
 //登录
 app.post("/user/login", (req, res) => {
     console.log(req.body);
@@ -126,16 +178,30 @@ app.post("/user/login", (req, res) => {
         }
     });
 });
+//统计今日注册的用户数量
+app.get("/user/count", (req, res) => {
+    let sql =
+        "select count(*) as count from user where DATE_FORMAT(createTime,'%Y-%m-%d') = DATE_FORMAT(NOW(),'%Y-%m-%d')";
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            return console.log(err);
+        }
+        return res.json({
+            state: true,
+            count: result[0].count,
+        });
+    });
+});
 //注册账号
 app.post("/user/register", (req, res) => {
     console.log(req.body);
     let data = req.body;
-    let { username, password } = data; //解构赋值
+    let { username, password, createTime } = data; //解构赋值
     let headImg = "http://localhost:3000/userHeadPhotos/defaultUser.png";
     let sql =
-        "INSERT INTO `user`(`userName`,`password`,`headImg`,`sex`, `userType`) VALUES(?,?,?,?,?)";
+        "INSERT INTO `user`(`userName`,`createTime`,`password`,`headImg`,`sex`, `userType`) VALUES(?,?,?,?,?,?)";
     // 注册操作写入数据表
-    let sqlParam = [username, password, headImg, "0", "user"];
+    let sqlParam = [username, createTime, password, headImg, "0", "user"];
     db.conn.query(sql, sqlParam, (err, result) => {
         if (err) {
             console.log(err);
@@ -332,6 +398,111 @@ app.post("/mine/updateUserInfo", (req, res) => {
         });
     }
 });
+//  统计今天的订单价格数据
+app.get("/order/getOrderPriceCount", (req, res) => {
+    const sql = `select sum(price) as countPrice,COUNT(id) AS countOrder, DATE_FORMAT(payTime, '%Y-%m-%d') as date from orders where payTime >= DATE_FORMAT(CURDATE(), '%Y-%m-%d') group by date`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            data: result,
+        });
+    });
+});
+// 统计最近7天每天新发布商品的数据
+app.get("/goods/getNewGoodsCount", (req, res) => {
+    const sql = `select count(id) as count, DATE_FORMAT(created, '%Y-%m-%d') as date from goods where created >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) group by date`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            data: result,
+        });
+    });
+});
+//统计商品各分类的数量信息且在本月之内
+app.get("/goods/getGoodsCountByCategory", (req, res) => {
+    const sql = `select count(g.id) as count,cate.category from goods g join goodscategory cate on cate.id=g.tag where g.created >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+    AND g.created < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)group by tag`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            result,
+        });
+    });
+});
+//统计本月所有订单的交易金额
+app.get("/order/getOrderPrice", (req, res) => {
+    const sql = `
+    SELECT 
+      SUM(price) AS totalPrice 
+    FROM 
+      orders 
+    WHERE 
+      payTime >= DATE_FORMAT(CURDATE(), '%Y-%m-01') AND 
+      payTime < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH);`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            res.json({ state: false, message: "数据库查询失败" });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            data: result[0].totalPrice,
+        });
+    });
+});
+//订单先分类，再统计各类的总金额
+app.get("/goods/getOrderCountByCategory", (req, res) => {
+    const sql = `
+    SELECT 
+      c.category AS name, 
+      SUM(o.price) AS value
+    FROM 
+      orders o
+    JOIN 
+      goods g ON o.goodsId = g.id
+    JOIN 
+      goodscategory c ON g.tag = c.id 
+    GROUP BY 
+     c.category;`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            res.json({ state: false, message: "数据库查询失败" });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            data: result,
+        });
+    });
+});
+
 // 获取商品信息
 app.get("/goods/getAllGoods", function (req, res) {
     const sql = `
@@ -1138,6 +1309,24 @@ app.get("/orders/getOrdersByUserId", (req, res) => {
                 sellerName: item.sellerName,
             };
         });
+        return res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+//获取订单全部信息
+app.get("/orders/getOrders", (req, res) => {
+    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as buyerImg,u.userName AS buyerName from orders o JOIN user u on o.buyerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取失败",
+            });
+        }
         return res.json({
             state: true,
             message: "获取成功",
