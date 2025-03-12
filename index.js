@@ -57,6 +57,7 @@ app.use((req, res, next) => {
         req.url.includes("/upload") ||
         req.url.includes("/temp") ||
         req.url.includes("/goodsPic") ||
+        req.url.includes("/register") ||
         req.url.includes("/userHeadPhotos")
     ) {
         next();
@@ -197,7 +198,7 @@ app.post("/user/register", (req, res) => {
     console.log(req.body);
     let data = req.body;
     let { username, password, createTime } = data; //解构赋值
-    let headImg = "http://localhost:3000/userHeadPhotos/defaultUser.png";
+    let headImg = "http://localhost:3000/userHeadPhotos/defaultUser.jpg";
     let sql =
         "INSERT INTO `user`(`userName`,`createTime`,`password`,`headImg`,`sex`, `userType`) VALUES(?,?,?,?,?,?)";
     // 注册操作写入数据表
@@ -236,6 +237,82 @@ app.get("/mine/info", function (req, res) {
             state: true,
             message: "获取用户信息成功",
             data: result,
+        });
+    });
+});
+//更新密码
+app.post("/user/updatePassword", function (req, res) {
+    let data = req.body;
+    let { id, password } = data;
+    let sql = "update user set password=? where id=?";
+    db.conn.query(sql, [password, id], function (err, result) {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "更新用户信息失败！请稍后再试...",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "更新用户信息成功",
+        });
+    });
+});
+//更新用户管理员状态
+app.post("/user/updateUserType", function (req, res) {
+    let data = req.body;
+    let { id, userType } = data;
+    let sql = "update user set userType=? where id=?";
+    db.conn.query(sql, [userType, id], function (err, result) {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "更新用户信息失败！请稍后再试...",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "更新用户信息成功",
+        });
+    });
+});
+
+// 获取所有的用户信息
+app.get("/user/list", function (req, res) {
+    let sql = "select * from user";
+    db.conn.query(sql, function (err, result) {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取用户信息失败！请稍后再试...",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "获取用户信息成功",
+            data: result,
+        });
+    });
+});
+// 删除用户
+app.post("/user/delete", function (req, res) {
+    let data = req.body;
+    let { id } = data;
+    let sql = "delete from user where id=?";
+    db.conn.query(sql, [id], function (err, result) {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "删除用户信息失败！请稍后再试...",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "删除用户信息成功",
         });
     });
 });
@@ -306,6 +383,7 @@ app.post("/mine/updateUserInfo", (req, res) => {
                     });
                 }
                 let oldUrl = result[0].headImg;
+
                 oldHeadImg = `uploads/userHeadPhotos/${oldUrl
                     .split("/")
                     .pop()}`;
@@ -340,8 +418,8 @@ app.post("/mine/updateUserInfo", (req, res) => {
                     });
                 }
                 //删除旧的头像
-                // 如果旧头像存在，删除旧头像文件
-                if (oldHeadImg) {
+                // 如果旧头像存在，删除旧头像文件,且旧头像不是默认头像才删除
+                if (oldHeadImg && !oldHeadImg.includes("defaultUser")) {
                     if (fs.existsSync(oldHeadImg)) {
                         fs.unlink(oldHeadImg, (err) => {
                             if (err) {
@@ -410,6 +488,19 @@ app.get("/order/getOrderPriceCount", (req, res) => {
                 error: "数据库查询失败",
             });
         }
+        if (result.length === 0) {
+            return res.json({
+                state: true,
+                message: "查询成功",
+                data: [
+                    {
+                        countPrice: 0,
+                        countOrder: 0,
+                        count: 0,
+                    },
+                ],
+            });
+        }
         return res.json({
             state: true,
             message: "查询成功",
@@ -417,7 +508,7 @@ app.get("/order/getOrderPriceCount", (req, res) => {
         });
     });
 });
-// 统计最近7天每天新发布商品的数据
+// 统计最近7天每天新发布商品的数据 //折线图
 app.get("/goods/getNewGoodsCount", (req, res) => {
     const sql = `select count(id) as count, DATE_FORMAT(created, '%Y-%m-%d') as date from goods where created >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) group by date`;
     db.conn.query(sql, (err, result) => {
@@ -436,7 +527,7 @@ app.get("/goods/getNewGoodsCount", (req, res) => {
         });
     });
 });
-//统计商品各分类的数量信息且在本月之内
+//统计商品各分类的数量信息且在本月之内 //雷达图
 app.get("/goods/getGoodsCountByCategory", (req, res) => {
     const sql = `select count(g.id) as count,cate.category from goods g join goodscategory cate on cate.id=g.tag where g.created >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
     AND g.created < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)group by tag`;
@@ -456,7 +547,7 @@ app.get("/goods/getGoodsCountByCategory", (req, res) => {
         });
     });
 });
-//统计本月所有订单的交易金额
+//统计本月所有订单的交易金额 top栏
 app.get("/order/getOrderPrice", (req, res) => {
     const sql = `
     SELECT 
@@ -477,7 +568,7 @@ app.get("/order/getOrderPrice", (req, res) => {
         });
     });
 });
-//订单先分类，再统计各类的总金额
+//订单先分类，再统计各类的总金额 //饼图
 app.get("/goods/getOrderCountByCategory", (req, res) => {
     const sql = `
     SELECT 
@@ -502,8 +593,50 @@ app.get("/goods/getOrderCountByCategory", (req, res) => {
         });
     });
 });
+//获取所有商品信息
+app.get("/goods/getGoods", (req, res) => {
+    const sql = `
+        SELECT 
+          g.id AS goodsId, 
+          g.title, 
+          g.content, 
+          g.price, 
+          g.pageView, 
+          g.created,
+          g.updated,
+          g.tag,
+          g.surfacePicture,
+          g.pictureUrl,
+          g.videoUrl,
+          g.orderState,
+          u.id AS userId, 
+          u.userName, 
+          u.headImg,
+          c.id AS category_id,
+          c.category AS category_name
+        FROM 
+          goods g
+        JOIN 
+          user u ON g.userId = u.id
+        JOIN 
+          goodscategory c ON g.tag = c.id`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "数据库查询失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "查询成功",
+            data: result,
+        });
+    });
+});
 
-// 获取商品信息
+// 获取商品信息排除已下架的
 app.get("/goods/getAllGoods", function (req, res) {
     const sql = `
         SELECT 
@@ -638,6 +771,61 @@ app.get("/goods/getGoodsByUserId", (req, res) => {
             state: true,
             message: "获取成功",
             data: result,
+        });
+    });
+});
+//获取商品的所有标签
+app.get("/goods/getAllTags", (req, res) => {
+    const sql = `SELECT * FROM goodscategory`;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+                error: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
+//删除某一个商品标签
+app.get("/goods/deleteTag", (req, res) => {
+    var category = req.query.category;
+    const sql = `DELETE FROM goodscategory WHERE category = ?`;
+    db.conn.query(sql, [category], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "删除成功",
+        });
+    });
+});
+//添加商品标签
+app.get("/goods/addTag", (req, res) => {
+    var category = req.query.category;
+    const sql = `INSERT INTO goodscategory (category) VALUES (?)`;
+    db.conn.query(sql, [category], (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({
+                state: false,
+                message: "数据库查询失败",
+            });
+        }
+        res.json({
+            state: true,
+            message: "添加成功",
         });
     });
 });
@@ -1291,6 +1479,24 @@ app.post("/order/submitOrder", (req, res) => {
         }
     });
 });
+//管理员获取所有订单
+app.get("/orders/getAllOrders", (req, res) => {
+    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as sellerImg,u.userName AS sellerName from orders o JOIN user u on o.sellerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id `;
+    db.conn.query(sql, (err, result) => {
+        if (err) {
+            console.log(err);
+            return res.json({
+                state: false,
+                message: "获取失败",
+            });
+        }
+        return res.json({
+            state: true,
+            message: "获取成功",
+            data: result,
+        });
+    });
+});
 // 用户获取订单
 app.get("/orders/getOrdersByUserId", (req, res) => {
     const { userId } = req.query;
@@ -1316,9 +1522,9 @@ app.get("/orders/getOrdersByUserId", (req, res) => {
         });
     });
 });
-//获取订单全部信息
+//获取订单全部信息 倒序 //工作台数据
 app.get("/orders/getOrders", (req, res) => {
-    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as buyerImg,u.userName AS buyerName from orders o JOIN user u on o.buyerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id`;
+    let sql = `select o.*,addr.name as addressName,addr.phone,addr.address,g.content,u.headImg as buyerImg,u.userName AS buyerName from orders o JOIN user u on o.buyerId=u.id JOIN goods g ON g.id=o.goodsId JOIN useraddress addr on o.addressId=addr.id order by o.id desc`;
     db.conn.query(sql, (err, result) => {
         if (err) {
             console.log(err);
